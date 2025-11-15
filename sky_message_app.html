@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sky Message - 受信モード</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            /* 背景を明るくロマンチックなトーンに変更 */
+            background: linear-gradient(135deg, #FFDAB9 0%, #FFA07A 50%, #87CEEB 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            overflow: hidden;
+        }
+
+        /* 方角が一致した時にメッセージが流れるエリア */
+        #message-stream-area {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+            background: rgba(0, 0, 0, 0.4); 
+        }
+
+        /* メッセージストリームのスタイル */
+        .stream-text {
+            position: absolute;
+            white-space: nowrap;
+            /* 垂直アニメーションを適用 */
+            animation: stream-flow-vertical 15s linear forwards; 
+            font-weight: 900;
+            font-size: 3rem;
+            opacity: 0;
+            transition: all 0.5s;
+        }
+
+        /* 垂直ストリームのアニメーション */
+        @keyframes stream-flow-vertical {
+            /* 画面下（100vh）からスタートし、透明 */
+            0% { transform: translateY(100vh); opacity: 0; }
+            /* すぐに不透明になりながら少し上昇 (読ませるためのピーク) */
+            5% { opacity: 1; transform: translateY(80vh); } 
+            /* 上昇中はずっと不透明 */
+            50% { opacity: 1; transform: translateY(50vh); }
+            /* 画面上部（-50vh）に到達するまでにゆっくりと消失 */
+            100% { transform: translateY(-50vh); opacity: 0; } 
+        }
+
+        /* テキスト装飾クラス (ランディングページと共通) */
+        .text-gold { color: #FFD700; }
+        .text-orange { color: #FFA500; }
+        .text-lightblue { color: #87CEFA; }
+        .deco-shadow { text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5); }
+        .deco-glow { text-shadow: 0 0 10px #ffffff, 0 0 20px currentColor; }
+        .deco-blur { filter: blur(0.8px); }
+        
+        /* デモ用のコンパス非表示 */
+        #compass-container, #status-area {
+            display: none;
+        }
+        
+        /* CONNECTED! のスタイル */
+        .connected-text {
+            color: #FFD700;
+            text-shadow: 0 0 10px #fff, 0 0 20px #FFD700;
+            animation: pulse-connect 1.5s infinite alternate;
+        }
+        @keyframes pulse-connect {
+            from { transform: scale(1); opacity: 0.9; }
+            to { transform: scale(1.05); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+
+    <div id="message-stream-area" style="display: flex;">
+        <h1 id="connection-status" class="text-4xl font-extrabold mb-4 z-60 bg-black/50 p-3 rounded-lg connected-text">CONNECTED！</h1>
+        <h2 id="streaming-title" class="text-2xl font-light mb-8 z-60" style="text-shadow: 0 0 5px #fff;"></h2>
+        <div id="end-message-container" class="mt-16 z-60 bg-black/50 p-5 rounded-xl flex flex-col items-center space-y-4" style="display: none;">
+            <h3 id="end-message" class="text-xl font-bold">メッセージ受信完了。</h3>
+            <button id="replay-button" class="py-2 px-6 bg-pink-500 text-white rounded-full hover:bg-pink-600 transition shadow-lg font-semibold" style="pointer-events: all;">
+                もう一度みる
+            </button>
+        </div>
+
+    </div>
+    
+    <div id="status-area"></div>
+    <div id="compass-container"></div>
+
+    <div id="custom-modal" class="fixed inset-0 bg-black/70 z-[200] flex items-center justify-center p-4" style="display:none;">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full text-gray-900 space-y-4">
+            <h3 id="modal-title" class="text-xl font-bold">お知らせ</h3>
+            <p id="modal-content"></p>
+            <button id="modal-close-button" class="w-full py-2 bg-sky-500 text-white rounded-lg hover:bg-sky-600 transition">閉じる</button>
+        </div>
+    </div>
+
+
+    <script type="module">
+        // ----------------------------------------------------
+        // デモ用ロジックのみ (本来はここにFirebase/GPS処理が入ります)
+        // ----------------------------------------------------
+        
+        // UI要素の取得
+        const messageStreamArea = document.getElementById('message-stream-area');
+        const streamingTitle = document.getElementById('streaming-title');
+        const connectionStatus = document.getElementById('connection-status');
+        const endMessageContainer = document.getElementById('end-message-container');
+        const replayButton = document.getElementById('replay-button');
+
+
+        // デモ用メッセージデータ 
+        const demoMessageData = {
+            sender: "リトル・プリンス",
+            message: "夜空を見上げてごらん。私たちが離れている分だけ、星は強く輝くんだ。いつも君のいる方角を想っているよ。また会える日まで、この光を信じて。",
+            theme: "gold", // テーマカラー: gold, orange, lightblue
+            decorations: ["glow", "shadow"], // 装飾: shadow, glow, blur
+            timestamp: Date.now(),
+        };
+
+        let isStreaming = false;
+
+        // カスタムモーダル関数（デモ用ダミー）
+        function showModal(title, content) {
+            console.log(`[Modal] ${title}: ${content}`);
+        }
+        
+        /**
+         * メッセージを自然な区切り（句読点や助詞）で分割する関数
+         */
+        function splitMessageByParticles(fullMessage) {
+            
+            // 助詞（が/の/を/に/へ/と/で/や/から/まで）の後ろと、句読点（、。！？）の後ろを区切りにする正規表現
+            const pattern = new RegExp(
+                // 1. 句読点（、。！？）の後に区切る
+                '([^、。！？]{1,8}[、。！？])' + 
+                // 2. 助詞（が/の/を/に/へ/と/で/や/から/まで）の後ろに区切る
+                '|([^がのをにへとでやからまで]{1,8}[がのをにへとでやからまで])',
+                'g'
+            );
+            
+            let chunks = [];
+            let lastIndex = 0;
+            let match;
+
+            while ((match = pattern.exec(fullMessage)) !== null) {
+                const chunk = match[1] || match[2];
+                if (chunk) {
+                    chunks.push(chunk.trim());
+                    lastIndex = match.index + chunk.length;
+                }
+            }
+
+            if (lastIndex < fullMessage.length) {
+                chunks.push(fullMessage.substring(lastIndex).trim());
+            }
+
+            chunks = chunks.filter(c => c.length > 0);
+            
+            // 分割されなかった場合の強制分割（例：8文字ごと）
+            if (chunks.length <= 1 && fullMessage.length > 8) {
+                return fullMessage.match(/.{1,8}/g) || [fullMessage];
+            }
+
+            return chunks;
+        }
+        
+        /**
+         * メッセージストリームを画面から削除し、初期状態に戻す
+         */
+        function resetStream() {
+            // .stream-text要素を全て削除
+            const streamTexts = messageStreamArea.querySelectorAll('.stream-text');
+            streamTexts.forEach(el => el.remove());
+            
+            // 終了メッセージとリプレイボタンを非表示
+            endMessageContainer.style.display = 'none';
+
+            // 接続ステータスとタイトルを再表示
+            connectionStatus.style.display = 'block';
+            streamingTitle.style.display = 'block';
+        }
+        
+        // ----------------------------------------------------
+        // メッセージストリーム関数
+        // ----------------------------------------------------
+        function startMessageStream(data) {
+            if (isStreaming) return;
+            isStreaming = true;
+            
+            // リセットしてから開始
+            resetStream(); 
+
+            // タイトルに送信者名を設定
+            streamingTitle.textContent = `${data.sender}より、空のメッセージが届きました。`;
+            
+            const fullMessage = data.message;
+            const chunks = splitMessageByParticles(fullMessage);
+            console.log("分割されたメッセージチャンク:", chunks);
+
+            const BASE_ANIMATION_DURATION = 15000; 
+            const INTER_CHUNK_DELAY = 3000; 
+
+            chunks.forEach((chunk, index) => {
+                const streamText = document.createElement('span');
+                streamText.textContent = chunk;
+                streamText.classList.add('stream-text');
+
+                // テーマと装飾を適用
+                streamText.classList.add(`text-${data.theme}`);
+                if (data.decorations.includes('shadow')) streamText.classList.add('deco-shadow');
+                if (data.decorations.includes('glow')) streamText.classList.add('deco-glow');
+                if (data.decorations.includes('blur')) streamText.classList.add('deco-blur');
+                
+                // 開始位置とアニメーションディレイを設定
+                streamText.style.left = `${Math.random() * 80 + 10}vw`; 
+                streamText.style.animationDuration = `${BASE_ANIMATION_DURATION + Math.random() * 5000}ms`; 
+                streamText.style.animationDelay = `${index * INTER_CHUNK_DELAY}ms`; 
+                
+                streamText.style.fontSize = `${2 + Math.random() * 2}rem`; 
+                
+                messageStreamArea.appendChild(streamText);
+            });
+            
+            // ストリームの終了
+            const totalStreamDuration = chunks.length * INTER_CHUNK_DELAY + BASE_ANIMATION_DURATION + 5000;
+            
+            setTimeout(() => {
+                isStreaming = false;
+                
+                // 終了メッセージコンテナを表示
+                endMessageContainer.style.display = 'flex'; 
+
+                // CONNECTED! の表示を解除
+                connectionStatus.style.display = 'none';
+
+            }, totalStreamDuration); 
+        }
+        
+        // 「もう一度みる」ボタンのイベントリスナー
+        replayButton.addEventListener('click', () => {
+            startMessageStream(demoMessageData);
+        });
+
+        // ページロード時にデモを開始
+        window.onload = () => {
+            startMessageStream(demoMessageData);
+        };
+
+    </script>
+</body>
+</html>
+```eof
+
+---
+
+これで受信者画面のUI・UXは完成しました。
+
+次は、メッセージ送信側のランディングページ **`sky_message_lp.html`** に、Firebase、位置情報選択、そしてメッセージの送信ロジックを統合していきます。よろしいでしょうか？
